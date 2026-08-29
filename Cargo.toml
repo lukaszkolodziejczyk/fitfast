@@ -1,0 +1,21 @@
+[package]
+name = "fitfast"
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "Fast Garmin FIT parsing for Python, backed by the rustyfit crate"
+repository = "https://github.com/lukaszkolodziejczyk/fitfast"
+
+[lib]
+name = "fitfast"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.26", features = ["extension-module", "abi3-py310"] }
+numpy = "0.26"
+rustyfit = "0.10.2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

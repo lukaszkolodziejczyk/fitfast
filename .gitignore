@@ -1,0 +1,10 @@
+/target
+/dist
+.venv
+__pycache__/
+*.pyc
+*.so
+.pytest_cache/
+uv.lock
+*.fit
+!tests/data/*.fit

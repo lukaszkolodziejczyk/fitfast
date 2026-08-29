@@ -1,0 +1,46 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "fitfast"
+version = "0.1.0"
+description = "Fast Garmin FIT file parsing, backed by the rustyfit Rust crate"
+readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE", "THIRD-PARTY-NOTICES.md"]
+authors = [{ name = "Lukasz Kolodziejczyk", email = "lukasz.m.kolodziejczyk@gmail.com" }]
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+keywords = ["fit", "garmin", "ant", "fitness", "gps", "parser", "rust"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Repository = "https://github.com/lukaszkolodziejczyk/fitfast"
+Changelog = "https://github.com/lukaszkolodziejczyk/fitfast/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "maturin>=1.7", "garmin-fit-sdk>=21"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "fitfast._native"
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

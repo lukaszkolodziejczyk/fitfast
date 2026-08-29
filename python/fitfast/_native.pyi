@@ -1,0 +1,16 @@
+from typing import Any
+
+import numpy as np
+
+__profile_version__: int
+
+class FitDecodeError(ValueError): ...
+
+def count(data: bytes) -> tuple[int, int]: ...
+def mesg_counts(data: bytes) -> dict[str, int]: ...
+def records(
+    data: bytes, message: str = "record", *, degrees: bool = True
+) -> dict[str, np.ndarray]: ...
+def parse(
+    data: bytes, *, enum_names: bool = True, datetimes: bool = False
+) -> dict[str, list[dict[str | int, Any]]]: ...
