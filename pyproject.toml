@@ -1,5 +1,6 @@
 [build-system]
-requires = ["maturin>=1.7,<2.0"]
+# 1.9.3+: full PEP 639 license metadata (License-Expression + License-File)
+requires = ["maturin>=1.9.3,<2.0"]
 build-backend = "maturin"
 
 [project]
@@ -17,7 +18,9 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "Operating System :: OS Independent",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -32,10 +35,11 @@ classifiers = [
 
 [project.urls]
 Repository = "https://github.com/lukaszkolodziejczyk/fitfast"
+Issues = "https://github.com/lukaszkolodziejczyk/fitfast/issues"
 Changelog = "https://github.com/lukaszkolodziejczyk/fitfast/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "maturin>=1.7", "garmin-fit-sdk>=21"]
+dev = ["pytest>=8", "maturin>=1.9.3", "garmin-fit-sdk>=21"]
 
 [tool.maturin]
 python-source = "python"

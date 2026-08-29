@@ -3,9 +3,9 @@
 Fast Garmin FIT file parsing for Python — a thin [PyO3](https://pyo3.rs) binding around the excellent
 [rustyfit](https://github.com/muktihari/rustyfit) Rust crate.
 
-**30–60× faster** than existing pure-Python FIT parsers for the common
-"FIT file → NumPy/DataFrame" workflow, with output semantics that match the
-official Garmin FIT SDK.
+**~36× faster** than the official pure-Python Garmin SDK for the common
+"FIT file → NumPy/DataFrame" workflow (17× for dict decode, 60× for file
+validation), with output semantics that match the official SDK.
 
 ```python
 import fitfast
@@ -26,7 +26,7 @@ data["session"][0]["total_distance"]  # 77265.02  (scale/offset applied)
 
 # Cheap full-file validation and exploration
 n_messages, n_fields = fitfast.count("activity.fit")
-fitfast.mesg_counts("activity.fit")   # {"file_id": 1, "record": 35079, ...}
+fitfast.message_counts("activity.fit")   # {"file_id": 1, "record": 35079, ...}
 ```
 
 All functions accept a path, `bytes`, `bytearray`, `memoryview`, or a binary
@@ -47,7 +47,8 @@ Every existing Python FIT parser decodes the binary format in pure Python.
 The [FIT format](https://developer.garmin.com/fit/) is dense — a single long
 activity is easily 100k+ messages and >1M fields — and pure-Python decoding
 costs seconds per file, which hurts anyone batch-processing an activity
-archive. Meanwhile the fastest FIT decoder in any language is a Rust crate.
+archive. Meanwhile the fastest FIT decoder we measured in any language is a
+Rust crate (see [roznet/fit-benchmarks](https://github.com/roznet/fit-benchmarks)).
 `fitfast` bridges that gap: it is (to our knowledge) the first Python FIT
 package backed by a native core.
 
@@ -55,10 +56,10 @@ Two design choices keep the speedup from evaporating at the FFI boundary:
 
 1. **Columnar first.** `records()` returns NumPy arrays built in Rust — no
    per-message Python objects at all. This is the fast path for analytics
-   (pandas/polars/matplotlib) and the reason the end-to-end speedup stays ~50×.
+   (pandas/polars/matplotlib) and the reason the end-to-end speedup stays ~36×.
 2. **Dicts when you want them.** `parse()` produces the familiar
    dict-of-messages shape with profile names, scale/offset, enum names, and
-   invalid-value handling matching the official SDK — still >10× faster than
+   invalid-value handling matching the official SDK — still 17× faster than
    pure-Python parsers, because only the final objects are built in Python.
 
 ## Benchmarks
@@ -83,7 +84,8 @@ records), Apple M-series, median of repeated in-process runs:
 | `fitfast.count()` | **0.043 s** | **1×** |
 | `garmin-fit-sdk` (official) | 2.57 s | 60× slower |
 
-Reproduce with [`benchmarks/bench.py`](benchmarks/bench.py) and any FIT file:
+Reproduce with [`benchmarks/bench.py`](https://github.com/lukaszkolodziejczyk/fitfast/blob/main/benchmarks/bench.py)
+and any FIT file:
 
 ```bash
 python benchmarks/bench.py path/to/activity.fit
@@ -114,9 +116,13 @@ Full decode → `dict[str, list[dict]]`, keyed by message name
 - `enum_names=True` renders profile enums as names (`"running"`), unknown
   values stay numeric. `datetimes=True` yields timezone-aware UTC `datetime`
   objects instead of Unix epoch ints.
-- Fields not in the profile are keyed by integer field number.
+- Fields not in the profile are keyed by integer field number (matching
+  garmin-fit-sdk); the same fields appear as `unknown_<num>` columns in
+  `records()`, where keys must be strings.
+- Array fields keep invalid elements as `None`; `BYTE`-typed fields are
+  returned as Python `bytes` (opaque payloads, e.g. `application_id`).
 
-### `fitfast.count(source)` / `fitfast.mesg_counts(source)`
+### `fitfast.count(source)` / `fitfast.message_counts(source)`
 
 Fast full-file validation → `(n_messages, n_fields)`, and per-kind message
 counts. Structure and CRCs are verified while decoding; invalid input raises
@@ -125,11 +131,15 @@ counts. Structure and CRCs are verified while decoding; invalid input raises
 ### Notes and current limitations
 
 - Chained FIT files (multiple FIT sequences in one file) are decoded fully.
+- `local_date_time` fields are converted with the same FIT-epoch offset as
+  `date_time` (no timezone shift is applied — FIT does not store the offset).
 - Compressed-timestamp headers, component expansion (`enhanced_speed`, ...)
   and accumulated fields are handled by the rustyfit decoder.
 - Dynamic sub-fields are not yet resolved (the main field's name is used) —
   planned for a future release.
 - `records()` intentionally returns only numeric scalars.
+- Files are decoded fully into memory; decoded messages can take an order of
+  magnitude more RAM than the file size.
 
 ## Credits
 
@@ -146,11 +156,13 @@ Cross-language performance context: [roznet/fit-benchmarks](https://github.com/r
 
 ## License
 
-`fitfast` is licensed under the [BSD 3-Clause License](LICENSE).
+`fitfast` is licensed under the
+[BSD 3-Clause License](https://github.com/lukaszkolodziejczyk/fitfast/blob/main/LICENSE).
 
 Bundled third-party code: the compiled extension statically links
-[rustyfit](https://crates.io/crates/rustyfit) (BSD-3-Clause), see
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+[rustyfit](https://crates.io/crates/rustyfit) (BSD-3-Clause) and
+[rust-numpy](https://github.com/PyO3/rust-numpy) (BSD-2-Clause), see
+[THIRD-PARTY-NOTICES.md](https://github.com/lukaszkolodziejczyk/fitfast/blob/main/THIRD-PARTY-NOTICES.md).
 
 The FIT Protocol itself is proprietary to Garmin; use of FIT-decoding software
 may require compliance with the

@@ -17,7 +17,7 @@ a ``bytearray``/``memoryview``, or a binary file-like object.
 from __future__ import annotations
 
 import os
-from typing import IO, Union
+from typing import IO, Any, Union
 
 import numpy as np
 
@@ -25,7 +25,7 @@ from fitfast._native import (
     FitDecodeError,
     __profile_version__,
     count as _count,
-    mesg_counts as _mesg_counts,
+    message_counts as _message_counts,
     parse as _parse,
     records as _records,
 )
@@ -42,7 +42,7 @@ __all__ = [
     "FitSource",
     "PROFILE_VERSION",
     "count",
-    "mesg_counts",
+    "message_counts",
     "parse",
     "records",
     "__version__",
@@ -78,13 +78,13 @@ def count(source: FitSource) -> tuple[int, int]:
     return _count(_as_bytes(source))
 
 
-def mesg_counts(source: FitSource) -> dict[str, int]:
+def message_counts(source: FitSource) -> dict[str, int]:
     """Return the number of decoded messages per message kind.
 
     Keys are FIT profile message names (``"record"``, ``"session"``, ...);
     manufacturer-specific message numbers appear as ``"unknown_<num>"``.
     """
-    return _mesg_counts(_as_bytes(source))
+    return _message_counts(_as_bytes(source))
 
 
 def records(
@@ -123,7 +123,7 @@ def parse(
     *,
     enum_names: bool = True,
     datetimes: bool = False,
-) -> dict[str, list[dict[str | int, object]]]:
+) -> dict[str, list[dict[str | int, Any]]]:
     """Decode ``source`` into dictionaries, keyed by message kind.
 
     Semantics match the official Garmin FIT SDKs: profile scale/offset are

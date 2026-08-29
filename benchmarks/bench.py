@@ -23,6 +23,8 @@ def bench(name: str, fn, iters: int) -> None:
 
 
 def main() -> None:
+    if len(sys.argv) < 2:
+        sys.exit("usage: python benchmarks/bench.py path/to/activity.fit")
     path = sys.argv[1]
     data = open(path, "rb").read()
     print(f"file: {path} ({len(data) / 1e6:.1f} MB)\n")

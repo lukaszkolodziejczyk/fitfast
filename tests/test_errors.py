@@ -61,7 +61,7 @@ def test_error_type_hierarchy():
     assert issubclass(fitfast.FitDecodeError, ValueError)
 
 
-@pytest.mark.parametrize("fn", [fitfast.count, fitfast.mesg_counts, fitfast.records, fitfast.parse])
+@pytest.mark.parametrize("fn", [fitfast.count, fitfast.message_counts, fitfast.records, fitfast.parse])
 def test_all_entry_points_raise(fn):
     with pytest.raises(fitfast.FitDecodeError):
         fn(b"\x00" * 64)
@@ -73,4 +73,4 @@ def test_chained_files_decode(activity):
     assert n == 2 * fitfast.count(activity)[0]
     d = fitfast.parse(data)
     assert len(d["record"]) == 6
-    assert fitfast.mesg_counts(data)["file_id"] == 2
+    assert fitfast.message_counts(data)["file_id"] == 2

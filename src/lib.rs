@@ -223,6 +223,11 @@ fn dev_field_is_invalid(f: &DeveloperField, reg: &HashMap<(u8, u8), DevFieldInfo
 
 /// Collect `field_description` messages into a
 /// (developer_data_index, field_definition_number) -> info map.
+///
+/// The map is built from the whole file before conversion, so a
+/// `field_description` redefined mid-file (or in a later chained FIT
+/// sequence) applies to all messages, not just the ones after it —
+/// a rare case the official SDK handles in stream order.
 fn dev_field_registry(messages: &[Message]) -> HashMap<(u8, u8), DevFieldInfo> {
     // field_description field numbers, per the FIT profile
     const DEVELOPER_DATA_INDEX: u8 = 0;
@@ -285,9 +290,11 @@ fn dev_field_registry(messages: &[Message]) -> HashMap<(u8, u8), DevFieldInfo> {
 fn dev_field_scaled(f: &DeveloperField, reg: &HashMap<(u8, u8), DevFieldInfo>) -> Option<f64> {
     let raw = scalar_f64(&f.value)?;
     match reg.get(&(f.developer_data_index, f.num)) {
+        // Like profile scale/offset, developer scale/offset applies to
+        // integer-typed values only; float values are stored pre-scaled.
         Some(info) => match info.scale {
-            Some(s) => Some(raw / s - info.offset),
-            None => Some(raw),
+            Some(s) if is_integer_value(&f.value) => Some(raw / s - info.offset),
+            _ => Some(raw),
         },
         None => Some(raw),
     }
@@ -330,7 +337,7 @@ fn group_by_num(messages: &[Message]) -> Vec<(MesgNum, Vec<usize>)> {
 }
 
 // ---------------------------------------------------------------------------
-// count / mesg_counts
+// count / message_counts
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
@@ -346,7 +353,7 @@ fn count(py: Python<'_>, data: &[u8]) -> PyResult<(usize, usize)> {
 }
 
 #[pyfunction]
-fn mesg_counts<'py>(py: Python<'py>, data: &[u8]) -> PyResult<Bound<'py, PyDict>> {
+fn message_counts<'py>(py: Python<'py>, data: &[u8]) -> PyResult<Bound<'py, PyDict>> {
     let groups = py.detach(|| {
         let messages = decode_all(data)?;
         Ok::<_, PyErr>(
@@ -512,7 +519,13 @@ fn timestamp_to_py<'py>(py: Python<'py>, unix: i64, opts: &ParseOpts) -> PyResul
     }
 }
 
-fn scaled_to_py<'py>(py: Python<'py>, v: &Value, scale: f64, offset: f64) -> PyResult<Py<PyAny>> {
+fn scaled_to_py<'py>(
+    py: Python<'py>,
+    v: &Value,
+    base_type: FitBaseType,
+    scale: f64,
+    offset: f64,
+) -> PyResult<Py<PyAny>> {
     let scaled = scale != 1.0 || offset != 0.0;
     macro_rules! num {
         ($x:expr) => {
@@ -526,20 +539,23 @@ fn scaled_to_py<'py>(py: Python<'py>, v: &Value, scale: f64, offset: f64) -> PyR
             }
         };
     }
-    macro_rules! vec_num {
-        ($xs:expr) => {
-            if scaled {
-                Ok($xs
-                    .iter()
-                    .map(|&x| (x as f64) / scale - offset)
-                    .collect::<Vec<f64>>()
-                    .into_pyobject(py)?
-                    .into_any()
-                    .unbind())
-            } else {
-                Ok($xs.clone().into_pyobject(py)?.into_any().unbind())
+    // Integer arrays: invalid-sentinel elements become None and scale/offset
+    // applies per element, matching the official SDK. BYTE arrays are opaque
+    // payloads, so their elements are kept verbatim.
+    macro_rules! vec_int {
+        ($xs:expr, $invalid:expr) => {{
+            let list = PyList::empty(py);
+            for &x in $xs.iter() {
+                if $invalid(x) {
+                    list.append(py.None())?;
+                } else if scaled {
+                    list.append((x as f64) / scale - offset)?;
+                } else {
+                    list.append(x)?;
+                }
             }
-        };
+            Ok(list.into_any().unbind())
+        }};
     }
     match v {
         Value::Invalid => Ok(py.None()),
@@ -554,14 +570,29 @@ fn scaled_to_py<'py>(py: Python<'py>, v: &Value, scale: f64, offset: f64) -> PyR
         Value::Float32(x) => num!(*x),
         Value::Float64(x) => num!(*x),
         Value::String(s) => Ok(PyString::new(py, s).into_any().unbind()),
-        Value::VecInt8(xs) => vec_num!(xs),
-        Value::VecUint8(xs) => vec_num!(xs),
-        Value::VecInt16(xs) => vec_num!(xs),
-        Value::VecUint16(xs) => vec_num!(xs),
-        Value::VecInt32(xs) => vec_num!(xs),
-        Value::VecUint32(xs) => vec_num!(xs),
-        Value::VecInt64(xs) => vec_num!(xs),
-        Value::VecUint64(xs) => vec_num!(xs),
+        Value::VecInt8(xs) => vec_int!(xs, |x: i8| x == i8::MAX),
+        Value::VecUint8(xs) if base_type == FitBaseType::BYTE => {
+            Ok(xs.clone().into_pyobject(py)?.into_any().unbind())
+        }
+        Value::VecUint8(xs) => {
+            let z = base_type == FitBaseType::UINT8Z;
+            vec_int!(xs, |x: u8| if z { x == 0 } else { x == u8::MAX })
+        }
+        Value::VecInt16(xs) => vec_int!(xs, |x: i16| x == i16::MAX),
+        Value::VecUint16(xs) => {
+            let z = base_type == FitBaseType::UINT16Z;
+            vec_int!(xs, |x: u16| if z { x == 0 } else { x == u16::MAX })
+        }
+        Value::VecInt32(xs) => vec_int!(xs, |x: i32| x == i32::MAX),
+        Value::VecUint32(xs) => {
+            let z = base_type == FitBaseType::UINT32Z;
+            vec_int!(xs, |x: u32| if z { x == 0 } else { x == u32::MAX })
+        }
+        Value::VecInt64(xs) => vec_int!(xs, |x: i64| x == i64::MAX),
+        Value::VecUint64(xs) => {
+            let z = base_type == FitBaseType::UINT64Z;
+            vec_int!(xs, |x: u64| if z { x == 0 } else { x == u64::MAX })
+        }
         Value::VecFloat32(xs) => Ok(xs.clone().into_pyobject(py)?.into_any().unbind()),
         Value::VecFloat64(xs) => Ok(xs.clone().into_pyobject(py)?.into_any().unbind()),
         // A single NUL-terminated string in a string-typed field is a scalar
@@ -588,7 +619,7 @@ fn field_to_py<'py>(
             let value = match fr.profile_type {
                 ProfileType::DateTime | ProfileType::LocalDateTime => match scalar_int(&f.value) {
                     Some(v) => timestamp_to_py(py, v as i64 + FIT_EPOCH_OFFSET, opts)?,
-                    None => scaled_to_py(py, &f.value, fr.scale, fr.offset)?,
+                    None => scaled_to_py(py, &f.value, f.base_type, fr.scale, fr.offset)?,
                 },
                 pt => {
                     let named = if opts.enum_names && fr.scale == 1.0 && fr.offset == 0.0 {
@@ -599,7 +630,7 @@ fn field_to_py<'py>(
                     match named {
                         // enum names form a small closed set: intern them
                         Some(name) => PyString::intern(py, &name).into_any().unbind(),
-                        None => scaled_to_py(py, &f.value, fr.scale, fr.offset)?,
+                        None => scaled_to_py(py, &f.value, f.base_type, fr.scale, fr.offset)?,
                     }
                 }
             };
@@ -607,7 +638,7 @@ fn field_to_py<'py>(
         }
         None => {
             let key = f.num.into_pyobject(py)?.into_any().unbind();
-            let value = scaled_to_py(py, &f.value, 1.0, 0.0)?;
+            let value = scaled_to_py(py, &f.value, f.base_type, 1.0, 0.0)?;
             Ok(Some((key, value)))
         }
     }
@@ -649,11 +680,14 @@ fn parse<'py>(
                     Some(i) => (i.scale.unwrap_or(1.0), i.offset),
                     None => (1.0, 0.0),
                 };
+                let base_type = info
+                    .and_then(|i| i.base_type)
+                    .unwrap_or_else(|| default_base_type(&f.value));
                 let key = match info {
                     Some(i) => PyString::intern(py, &i.name),
                     None => PyString::intern(py, &dev_field_name(f, &reg)),
                 };
-                d.set_item(key, scaled_to_py(py, &f.value, scale, offset)?)?;
+                d.set_item(key, scaled_to_py(py, &f.value, base_type, scale, offset)?)?;
             }
             list.append(d)?;
         }
@@ -667,7 +701,7 @@ fn parse<'py>(
 #[pymodule]
 fn _native(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(count, m)?)?;
-    m.add_function(wrap_pyfunction!(mesg_counts, m)?)?;
+    m.add_function(wrap_pyfunction!(message_counts, m)?)?;
     m.add_function(wrap_pyfunction!(records, m)?)?;
     m.add_function(wrap_pyfunction!(parse, m)?)?;
     m.add("FitDecodeError", py.get_type::<FitDecodeError>())?;
